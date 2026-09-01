@@ -7,12 +7,21 @@ Agent skills for working on the HKUST-GZ High Performance Computing clusters. Ea
 | Skill | Description |
 |---|---|
 | [`hkustgz-hpc2`](./hkustgz-hpc2/) | Slurm cheat sheet for the HKUST-GZ HPC **Phase 2** cluster — job submission, partitions, GPU jobs, monitoring, cancellation, walltime sizing, and storage layout. |
+| [`hkustgz-hpc4`](./hkustgz-hpc4/) | HKUST-GZ HPC **Phase 4** routing and operations — Kunpeng CPU Slurm jobs on `hpc` and Ascend 910C NPU containers in AIStudio. |
 
-More clusters/workflows (Phase 1 / LSF, K8s container jobs, …) can be added as additional skill folders over time.
+Install only the phases your account can access. This keeps unavailable clusters out of the agent's choices. Users with both accounts can install both; the skills then route from the conversation, project, SSH target, and job files.
 
 ## Install
 
-Each skill is a self-contained directory containing a `SKILL.md`. The agent surfaces it automatically when you ask about submitting Slurm jobs, writing `sbatch` scripts, or working on the cluster.
+Each skill is a self-contained directory containing a `SKILL.md`. Choose the installation matching your account:
+
+| Account access | Install |
+|---|---|
+| Phase 2 only | `hkustgz-hpc2` |
+| Phase 4 only | `hkustgz-hpc4` |
+| Both phases | both skills |
+
+Prefer a project-local installation when a project always targets one phase.
 
 ### Claude Code
 
@@ -21,11 +30,13 @@ Copy the skill folder into a skills directory:
 ```bash
 git clone https://github.com/isPANN/hkustgz-hpc-skills.git
 
-# Personal — available in all projects
+# Personal — choose one, or run both commands if you have both accounts
 cp -r hkustgz-hpc-skills/hkustgz-hpc2 ~/.claude/skills/
+cp -r hkustgz-hpc-skills/hkustgz-hpc4 ~/.claude/skills/
 
-# Or per-project
+# Or install the project's phase only
 cp -r hkustgz-hpc-skills/hkustgz-hpc2 .claude/skills/
+cp -r hkustgz-hpc-skills/hkustgz-hpc4 .claude/skills/
 ```
 
 ### Codex
@@ -33,15 +44,18 @@ cp -r hkustgz-hpc-skills/hkustgz-hpc2 .claude/skills/
 Use the bundled `skill-installer` (installs into `$CODEX_HOME/skills`, default `~/.codex/skills`):
 
 ```bash
-# from within Codex, the skill-installer runs:
+# Choose one, or run both commands if you have both accounts:
 install-skill-from-github.py --repo isPANN/hkustgz-hpc-skills --path hkustgz-hpc2
+install-skill-from-github.py --repo isPANN/hkustgz-hpc-skills --path hkustgz-hpc4
 ```
 
 …or just clone and copy the folder yourself:
 
 ```bash
 git clone https://github.com/isPANN/hkustgz-hpc-skills.git
+# Choose one, or run both commands if you have both accounts:
 cp -r hkustgz-hpc-skills/hkustgz-hpc2 ~/.codex/skills/
+cp -r hkustgz-hpc-skills/hkustgz-hpc4 ~/.codex/skills/
 ```
 
 Restart Codex to pick up new skills.

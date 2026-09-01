@@ -1,15 +1,25 @@
 ---
 name: hkustgz-hpc2
-description: Use when submitting Slurm jobs, checking job status, writing sbatch scripts, or working interactively on the HKUST-GZ HPC Phase 2 cluster (SSH host `hkustgz-hpc2` / `hpc2login.hpc.hkust-gz.edu.cn`). Covers partitions, GPU jobs, monitoring, cancellation, and storage layout.
+description: Operate the HKUST-GZ HPC Phase 2 Slurm cluster. Use when the request, project, or SSH target concerns `HPC2`/`二期`, `hkustgz-hpc2`, `hpc2login.hpc.hkust-gz.edu.cn`, A800/A40, `/hpc2hdd`, or `i64...` partitions. If this is the user's only installed HKUST-GZ HPC skill, use it for otherwise-unspecified HKUST-GZ cluster work without asking about another phase. Covers job submission, monitoring, cancellation, and storage.
 metadata:
   short-description: Slurm job submission & monitoring on the HKUST-GZ HPC Phase 2 cluster
 ---
 
 # HKUST-GZ HPC2 (Slurm) Cheat Sheet
 
-HPC Phase 2 uses **Slurm**. Phase 1 uses LSF (`jsub` / `#BSUB`) — different system, don't mix.
+HPC Phase 2 uses **Slurm**. Phase 1 uses LSF (`jsub` / `#BSUB`), while Phase 4 has a different Slurm partition and a separate AIStudio NPU workflow. Do not mix them.
 
 Official docs: https://docs.hpc.hkust-gz.edu.cn/docs/hpc12/
+
+## Phase selection
+
+This skill's installation means Phase 2 is available to the user. Do not ask whether they have Phase 4 access. Keep using Phase 2 when it is the only installed HKUST-GZ HPC skill or is already established by the conversation, project, SSH target, job script, partition, or storage path.
+
+When both phase skills are installed:
+
+- Answer cluster-independent Slurm questions without choosing a phase.
+- For phase-specific work, inspect available read-only context first: current hostname, SSH target/config, existing job script, partition, paths, and requested hardware. A new explicit target replaces older context.
+- Ask which cluster the user uses only when a phase-specific action or command still cannot be chosen safely, or when the evidence conflicts. Once answered, retain it for the rest of the conversation.
 
 ## Rule: confirm every parameter before submitting
 
@@ -261,4 +271,5 @@ Format: `-t 30` (30 min) · `-t 02:00:00` (HH:MM:SS) · `-t 1-12:00:00` (D-HH:MM
 ## When NOT to use this skill
 
 - On HPC Phase 1 (`hpc1login`) — that's LSF, commands are `jsub` / `jjobs` / `jctrl` / `jhist` with `#BSUB` directives.
+- On HPC Phase 4 (`hpc4login.hpc.hkust-gz.edu.cn`, Kunpeng CPU, 910C NPU, or AIStudio). Use `hkustgz-hpc4`.
 - For the K8s / AI container workflow on HPC2 — that's a separate path (`/docs/hpc12/k8s/...`), not Slurm.
