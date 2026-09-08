@@ -52,6 +52,116 @@ within ~1 minute with precompile errors. Rules:
 4. Symptom check: if new jobs die in <1 min, read the log — precompile/pidfile
    errors mean re-stagger and resubmit.
 
+## Parallelism patterns: shell-level vs ClusterManagers
+
+Within one sbatch allocation there are two ways to fan work out. Both still obey
+the precompile rules above — the pidfile race exists between **processes**, not
+just between jobs, and `$JULIA_DEPOT_PATH` lives on shared GPFS, so processes on
+*different nodes* race too.
+
+### A. Shell-level: independent Julia processes (our default)
+
+Complete multi-node sbatch script — one Julia process per node, each saturated
+with local `-p` workers. Follows the `hkustgz-hpc2` `-n`/`-c` rule: `-n` counts
+**processes**, `-c` is CPUs **per process**:
+
+```bash
+#!/bin/bash
+#SBATCH -J cft_fill
+#SBATCH --nodes=3                  # 3 independent Julia processes
+#SBATCH --ntasks-per-node=1        # ONE process per node (not 64!)
+#SBATCH --cpus-per-task=64         # each process gets 64 CPUs → -p 64 workers
+#SBATCH -o job-cftfill-%j.txt
+#SBATCH --exclude=cpu1-1,cpu1-35,cpu1-48,cpu1-81,cpu1-92,cpu1-95,cpu2-17
+
+cd /hpc2hdd/home/zzhi359/FibonacciChain.jl
+export JULIA_WORKER_TIMEOUT=300
+
+# Warm the cache ONCE before launching anything — all nodes share
+# $JULIA_DEPOT_PATH on GPFS, so concurrent cold starts race the pidfile.
+julia --project=. -e 'using Pkg; Pkg.precompile()'
+
+LO=(1 1001 2001); HI=(1000 2000 3000)   # per-node seed ranges
+i=0
+for node in $(scontrol show hostnames "$SLURM_JOB_NODELIST"); do
+  srun --nodes=1 --ntasks=1 --nodelist="$node" \
+    julia --project=. -p "$SLURM_CPUS_PER_TASK" \
+      exm/Bulk_measure/driver.jl "${LO[$i]}" "${HI[$i]}" \
+    > "log_${SLURM_JOB_ID}_chunk$((i+1)).txt" 2>&1 &
+  i=$((i+1))
+  sleep 20   # stagger cold-start processes: they race the pidfile too
+done
+wait
+```
+
+- `srun` here launches **job steps inside the existing allocation**, one pinned
+  per node via `--nodelist`; each step inherits `--cpus-per-task=64`, and
+  `$SLURM_CPUS_PER_TASK` hands the same number to Julia's `-p`. `-c` and workers
+  always match — more CPUs than workers does NOT speed anything up.
+- Do NOT set `--ntasks=192` / `--ntasks-per-node=64`: `-n` is process count
+  (MPI-rank semantics per `hkustgz-hpc2`); Julia parallelism comes from `-p`
+  inside each process, not from task count.
+- `%j` only expands in `#SBATCH` directives — inside the script use
+  `$SLURM_JOB_ID` for per-step log names.
+- Multi-node allocation caveat: the job starts only when ALL nodes are free, and
+  one bad node in the nodelist hurts every chunk sharing the job — the exclude
+  list is mandatory. When chunks are independent, N staggered single-node jobs
+  (this project's usual mode) schedule faster and fail smaller than one
+  N-node job; use the multi-node form only when you specifically want one jobid.
+- Work partitioning is manual (seed ranges / seedlists); each process owns a range.
+- **Fault isolation**: one process crashes → the rest finish; resubmit only the
+  missing range. This is what makes gap-filling cheap.
+- No cross-process communication → no serialization pitfalls, no master to die.
+- Tail waste: fixed ranges mean the slowest chunk sets the finish time; mitigate
+  with smaller chunks, not with fancier parallelism.
+
+### B. Julia-level: ClusterManagers SlurmManager (one master, workers as Slurm tasks)
+
+```julia
+using ClusterManagers, Distributed
+const PROJECT_DIR = dirname(Base.active_project())
+const NWORKERS = parse(Int, get(ENV, "SLURM_NTASKS", "64"))
+# SLURM_CPUS_PER_TASK gives threads per task; we run --threads=1
+addprocs(SlurmManager(NWORKERS); exeflags="--project=$PROJECT_DIR --threads=1")
+pmap(work; batch_size=1)   # dynamic load balancing
+```
+
+Matching sbatch shape — the mirror image of A: here `-n` IS the worker count,
+each task is single-CPU (`--threads=1`), and `SlurmManager` launches the workers
+as its own srun steps inside the allocation:
+
+```bash
+#SBATCH --nodes=8
+#SBATCH --ntasks-per-node=8        # 64 worker tasks total (master runs on the batch shell)
+#SBATCH --cpus-per-task=1          # one CPU per Julia worker; NOT 64
+```
+
+- One sbatch job spans many nodes; pmap with `batch_size=1` balances dynamically —
+  good when per-task cost varies wildly.
+- Costs and failure modes (all observed or one misstep away):
+  - Master is a **single point of failure**: master lands on a bad node → the whole
+    multi-node allocation dies at once. Pattern A loses one chunk; B loses everything.
+  - A worker dying mid-pmap can hang the whole job.
+  - Every function workers touch must be `@everywhere`-defined. A master-local
+    function → `UndefVarError: #f not defined`, all workers exit in ~40 s having
+    computed nothing (real incident, 15 jobs burned).
+  - Needs `JULIA_WORKER_TIMEOUT=300` — workers cold-start slowly on GPFS.
+  - `addprocs` launches all workers at once → same pidfile race; the sbatch-level
+    warm-up must complete before the master starts.
+  - `ClusterManagers` must be in the Project env; don't add it ad hoc.
+
+### Which one, when
+
+- **Default to A.** Our workload is sample generation at fixed (L, χ, γ) → per-seed
+  cost is near-uniform → dynamic balancing buys nothing, and A's fault isolation +
+  trivial restartability win. Multiple independent single-node jobs with stagger
+  IS pattern A across the queue.
+- Use B only when per-task cost varies by orders of magnitude AND chunks can't be
+  pre-split sensibly, or the algorithm is genuinely distributed. Do not reach for B
+  to fix imbalance that smaller chunks would fix more robustly.
+- Never mix the two casually: B inside a `for` loop of processes multiplies the
+  precompile race and the debugging surface for no benefit.
+
 ## Partition playbook (project usage)
 
 | Partition | Use for | Notes |
