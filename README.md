@@ -8,6 +8,7 @@ Agent skills for working on the HKUST-GZ High Performance Computing clusters. Ea
 |---|---|
 | [`hkustgz-hpc2`](./hkustgz-hpc2/) | Slurm cheat sheet for the HKUST-GZ HPC **Phase 2** cluster — job submission, partitions, GPU jobs, monitoring, cancellation, walltime sizing, and storage layout. |
 | [`hkustgz-hpc4`](./hkustgz-hpc4/) | HKUST-GZ HPC **Phase 4** routing and operations — Kunpeng CPU Slurm jobs on `hpc` and Ascend 910C NPU containers in AIStudio. |
+| [`hpc2ust-fibochain`](./hpc2ust-fibochain/) | Project-specific ops rules for FibonacciChain.jl Julia jobs on Phase 2 (`hpc2ust`) — Julia precompile stagger, architecture pollution, bad-node excludes, gap-fill data discipline, dual-repo sync. Personal companion to `hkustgz-hpc2`, not a general-purpose skill. |
 
 Install only the phases your account can access. This keeps unavailable clusters out of the agent's choices. Users with both accounts can install both; the skills then route from the conversation, project, SSH target, and job files.
 
