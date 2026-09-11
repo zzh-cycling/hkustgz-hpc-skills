@@ -6,7 +6,7 @@ description: >-
   `hpc2login.hpc.hkust-gz.edu.cn`, `~/FibonacciChain.jl`, partitions
   `i64m512u`/`i64m512r`/`i64m512ue`/`long_cpu`/`a128m512u`/`i96m3tu`, sbatch for
   Julia/MPS/DMRG/TCI/Potts/lyapunov/topological-charge jobs, or collecting/syncing
-  their data to the local NoisyFibonacciChain / MonitoredFibochainPaper repos.
+  their data to the local MonitoredFibochainPaper repo.
   Complements the generic hkustgz-hpc2 skill with project-specific hard rules
   learned from past failures.
 metadata:
@@ -30,9 +30,7 @@ failures** — they override generic advice where they conflict.
 - Remote repo: `/hpc2hdd/home/zzhi359/FibonacciChain.jl`. Logs live in the repo
   root as `job-<name>-<jobid>.txt`.
 - Local repos that receive data (see "Data sync" below):
-  - `/Users/cycling/Documents/projects/NoisyFibonacciChain`
-  - `/Users/cycling/Documents/projects/MonitoredFibochainPaper` (mirror — **every**
-    download must also be copied there)
+  - `/Users/cycling/Documents/projects/MonitoredFibochainPaper`
 
 ## Julia precompile discipline (top source of mass job death)
 
@@ -230,6 +228,53 @@ julia --project=. exm/Bulk_measure/lyapunov_spectrum_sector.jl {y1|ytau} collect
 Prefer `debug` or `i64m512ue` nodes for collect/merge when compute partitions are
 full. A job's success marker is the `done: ok=N skip=M failed=0` line in its log —
 always grep it before declaring completion.
+
+## Silent early death (second source of mass data shortage)
+
+Observed 2026-09-08 on lyapunov jobs (both range and seedlist drivers): the Julia
+master dies **right when the first pmap wave completes** (~55 min at L24, ~2.5 h
+at L28 — tracks single-seed cost, so look for the signature, not a fixed time):
+
+- Log ends with the driver banner, immediately followed by the shell's
+  `Job completed at:` — **no `done: ok=` line, no stacktrace**.
+- `sacct` shows `COMPLETED 0:0` — that exit code belongs to the trailing `echo`
+  in the shell script, NOT to Julia. Never trust sacct State alone.
+- The seeds it managed to write cluster in the last minute before death.
+
+A debug-node control run (same driver, 2 waves) completed cleanly with
+`done: ok=8 skip=0`, so this is environmental (silent kill on the compute node),
+not a driver bug. Detection and repair:
+
+- Health check = **directory file count growing**, not log banners. Julia's stdout
+  to a redirected file is block-buffered; a missing banner alone proves nothing.
+- ssh to the node (`squeue` → nodelist) and check `uptime` load ≈ `-c` value to
+  confirm a suspicious job is actually computing.
+- Repair: regenerate the explicit missing-seed list from what's on disk
+  (`bash gen_lyap_seedlists.sh` pattern: ls + awk diff against `seq lo hi`) and
+  resubmit with the seedlist driver. Repeat until counts hit targets.
+- New shell scripts should propagate failure: `julia ... || exit 1` before the
+  final echo, so sacct shows the real outcome.
+
+**Update 2026-09-10 — a second, more common killer with the same signature.** Later
+rounds showed jobs dying after hours of healthy production; grepping the full log
+(not just the tail) revealed `ERROR: LoadError: On worker N: the MPS Born
+trajectory left the y=1 sector` — a per-seed physics assertion
+(`lyapunov_spectrum_sector.jl`, |y_expectation − sector eigenvalue| > 1e-4 at the
+current χ). `pmap` has no fault tolerance, so **one bad seed kills the whole job
+and every in-flight seed**. Fixes applied:
+
+- Driver-side `try/catch` around each seed (`lyapunov_sector_seedlist_driver.jl`):
+  log `FAILED seed=N: msg`, delete the partial file, continue; final line becomes
+  `done: ok=N skip=M fail=K` plus an explicit `failed seeds: [...]` list.
+- Deterministic failures (fixed seed → fixed trajectory) never succeed on retry —
+  stop resubmitting them; they need a larger χ or a relaxed threshold (user's call).
+- Killed jobs also leave **truncated jld2 files** that crash any later collect
+  (`InvalidDataException: Did not find a Superblock`; a 256 KiB-round size is a
+  tell). Scan the directory with `exm/shell/check_jld2_dir.jl <dir>` (jldopen on
+  every file) before collecting; delete the corrupt stubs and recompute those
+  seeds — deleting garbage is not recomputation.
+- `pgrep -f <pattern>` inside an ssh'd watcher matches the watcher's own command
+  line and loops forever — match on the sbatch job name or jobid instead.
 
 ## Monitoring cadence
 
